@@ -158,11 +158,23 @@ Below the table, one line: `Ruled out: <n> positions (<n> overturned on contest,
 
 Before delivering, check every Position and Fix against the "No slop" rule; run the `stop-slop` skill over them too if available. Edit wording only; never change a claim, location, or citation. A row that still contains slop does not ship.
 
-### 8. Deliver and clean up
+### 8. Deliver
 
-Write the decision to `team-review-<run-id>.md` in the working directory and print the table inline. If the user asked, post it to the PR (`gh pr comment <n> --body-file <file>`); never post without being asked. If the table is empty, say so in one line: the team found nothing that met the bar.
+Write the decision to `team-review-<run-id>.md` in the working directory and print the table inline. If the table is empty, say so in one line: the team found nothing that met the bar.
 
-Then remove only this run's state: `git worktree remove --force <run-dir>/repo` and `git update-ref -d refs/team-review/<run-id>`. Never prune or remove other worktrees or `refs/team-review/*` refs; they may belong to a live review.
+### 9. Offer to publish (PR targets only)
+
+Build the candidate comments from the table rows only, nothing else from the review. Keep a row only if it is in the PR's scope: its Location is a line the PR adds or changes, or the defect is caused by the PR's change. Drop rows about pre-existing code, adjacent refactors, or concerns the PR doesn't take on, even if they have merit.
+
+Each comment is the row's Position, Evidence, and Fix, written for the PR author and following the "No slop" rule. No preamble, no summary comment, no praise.
+
+Show the user the comments with their target lines, plus the excluded rows with a one-line reason each. Then ask (AskUserQuestion) whether to publish them all, publish a subset, or skip. Never post without that answer.
+
+On yes, post one review with inline comments on the diff lines and event `COMMENT`: `gh api repos/{owner}/{repo}/pulls/<n>/reviews --input <run-dir>/review.json`, using `commit_id` = the pinned head SHA and each comment's `path`, `line`, `side: RIGHT`. A row whose line is not in the diff goes in the review body instead. Report the review URL.
+
+### 10. Clean up
+
+Remove only this run's state: `git worktree remove --force <run-dir>/repo` and `git update-ref -d refs/team-review/<run-id>`. Never prune or remove other worktrees or `refs/team-review/*` refs; they may belong to a live review.
 
 ## Principles
 

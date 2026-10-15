@@ -32,6 +32,6 @@ In Claude Code:
 
 Or ask in prose: "team review this PR", "rigorous review of this branch".
 
-The decision is written to `team-review-<slug>.md` in the working directory and printed inline. It is posted to the PR only if you ask.
+The decision is written to `team-review-<run-id>.md` in the working directory and printed inline. For a PR, it then asks whether to post the in-scope strong positions as inline review comments; nothing is posted without your yes.
 
 Requires `gh` (authenticated) for PR targets, and an agent with subagent, shell, and web tools.
