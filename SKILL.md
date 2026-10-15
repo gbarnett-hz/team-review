@@ -39,17 +39,30 @@ A position that is only slop once these are removed has no content and is droppe
 
 ## Process
 
-### 1. Resolve the target and build the context packet
+### 1. Isolate the run
+
+Several reviews may run at once from different sessions on the same repo. Each run gets its own workspace and never touches the user's checkout.
+
+- **Run ID:** `<slug>-<4 random hex>`, e.g. `pr123-a1f9`. Every path, ref, and agent name below includes it.
+- **Run dir:** `<scratchpad>/team-review-<run-id>/` (or `mktemp -d` when there is no scratchpad).
+- **Pin the head to a private ref**, so concurrent fetches don't race on `FETCH_HEAD`:
+  - PR: `git fetch origin pull/<n>/head:refs/team-review/<run-id>`
+  - Branch / range / specific code: `git update-ref refs/team-review/<run-id> <head>`
+- **Worktree:** `git worktree add --detach <run-dir>/repo refs/team-review/<run-id>`. Detached, so it never collides with a branch checked out elsewhere.
+
+The worktree is the repo path for every agent. Agents must not `checkout`, `switch`, `reset`, or `stash` in any other checkout; builds, test runs, and repro scripts run inside the worktree; scratch files go in the run dir.
+
+### 2. Resolve the target and build the context packet
 
 - PR: `gh pr view <n> --json title,body,baseRefName,headRefName,files,url,commits,closingIssuesReferences` and `gh pr diff <n>`. Read linked issues and existing review comments (`gh api repos/{owner}/{repo}/pulls/<n>/comments`).
 - Branch / range: `git diff <base>...<head>`, `git log <base>..<head>`.
 - Specific code: the named files/symbols plus their callers.
 
-Write the packet to the scratchpad (or a temp dir) so every agent reads the same thing: target description, the diff or code, base/head refs, changed files, linked issues/docs, and the repo path. Context lives in four places and agents are expected to use all that apply to their angle: **this codebase** (callers, tests, history), **related documents** (design docs, ADRs, specs, READMEs in or near the repo), **other codebases** (upstream dependencies, sibling repos, GitHub code search), **the web** (docs, RFCs, CVEs, known bugs).
+Write the packet to `<run-dir>/packet.md` so every agent reads the same thing: target description, the diff or code, base/head refs and SHAs, changed files, linked issues/docs, the run ID, and the worktree path. Context lives in four places and agents are expected to use all that apply to their angle: **this codebase** (callers, tests, history), **related documents** (design docs, ADRs, specs, READMEs in or near the repo), **other codebases** (upstream dependencies, sibling repos, GitHub code search), **the web** (docs, RFCs, CVEs, known bugs).
 
 If the target is ambiguous (no PR, no diff, nothing named), ask one short question. Otherwise proceed.
 
-### 2. Pick the team
+### 3. Pick the team
 
 Choose 6-10 personas suited to the change. Always include **Correctness**, **Adversary**, **Devil's Advocate**, and **Tests**. Add others the change warrants:
 
@@ -70,11 +83,11 @@ Choose 6-10 personas suited to the change. Always include **Correctness**, **Adv
 
 Invent a persona when the change needs one (e.g. Crypto, SQL semantics, Licensing). Personas differ by **angle**, not by file. Overlap in conclusions is corroboration; overlap in method is waste.
 
-### 3. Spawn the team in parallel
+### 4. Spawn the team in parallel
 
-One message, one `general-purpose` Agent call per persona (they need file, shell, and web tools). Give each a name you can address later (e.g. `tr-adversary`). Each prompt is self-contained:
+One message, one `general-purpose` Agent call per persona (they need file, shell, and web tools). Give each a name you can address later, scoped by run ID so it can't collide with another session's team (e.g. `tr-<run-id>-adversary`). Each prompt is self-contained:
 
-- the context packet path and repo path,
+- the context packet path and the worktree path, plus the isolation rule from step 1,
 - its persona and angle, and what is out of its lane,
 - the citation rule (verbatim from "The one rule") and the "No slop" rule (verbatim),
 - the output contract below,
@@ -96,13 +109,13 @@ FIX: <concrete change, cited if it relies on an API/pattern elsewhere>
 
 Then **GAPS**: what it could not verify and why.
 
-### 4. Arbiter's first ruling
+### 5. Arbiter's first ruling
 
-When every persona has returned, spawn the arbiter (`general-purpose`, name `tr-arbiter`) with all positions verbatim. Do not filter or summarise them.
+When every persona has returned, spawn the arbiter (`general-purpose`, name `tr-<run-id>-arbiter`) with all positions verbatim. Do not filter or summarise them.
 
 Arbiter brief:
 
-> You are the arbiter for a code review of: <target>. Context packet: <path>. You receive positions from a review team. You care only about **strong positions**.
+> You are the arbiter for a code review of: <target>. Context packet: <path>. Worktree: <path>; work only there. You receive positions from a review team. You care only about **strong positions**.
 >
 > A position is strong only if all hold: (a) every assertion in it is cited, (b) you opened the citations and they say what the position says, (c) the source is credible for that kind of claim, (d) better evidence does not contradict it, (e) it changes what should happen to this code (a fix, a test, a block, a rework), (f) it is stated without hedging, (g) it obeys the "No slop" rule: <paste rule verbatim>.
 >
@@ -112,7 +125,7 @@ Arbiter brief:
 >
 > Output: a rulings table (ID, ruling, one-line cited reason), then the CONSULT requests.
 
-### 5. Debate
+### 6. Debate
 
 Send the full rulings table to **every** persona (`SendMessage` to the named agent; if it is gone, spawn a fresh one with its original brief plus the rulings). Each persona may file, for any position from any persona:
 
@@ -124,7 +137,7 @@ Nothing to file is fine. Repetition without new evidence is not an appeal; the a
 
 Forward all filings verbatim to the arbiter. The arbiter re-rules and may issue new CONSULT requests to any team member, routed by you. Repeat until no filings or CONSULTs remain, capped at 3 rounds. After the cap, anything unresolved is NO MERIT. **The arbiter's ruling is final.**
 
-### 6. The decision
+### 7. The decision
 
 The arbiter writes the decision: MERIT positions only, each rewritten as a strong position. Strong means a plain declarative statement of what is wrong and what to do, no hedging words ("might", "could", "consider", "potentially", "seems"), no filler. If it cannot be said strongly, it is not in the table.
 
@@ -145,9 +158,11 @@ Below the table, one line: `Ruled out: <n> positions (<n> overturned on contest,
 
 Before delivering, check every Position and Fix against the "No slop" rule; run the `stop-slop` skill over them too if available. Edit wording only; never change a claim, location, or citation. A row that still contains slop does not ship.
 
-### 7. Deliver
+### 8. Deliver and clean up
 
-Write the decision to `team-review-<slug>.md` in the working directory and print the table inline. If the user asked, post it to the PR (`gh pr comment <n> --body-file <file>`); never post without being asked. If the table is empty, say so in one line: the team found nothing that met the bar.
+Write the decision to `team-review-<run-id>.md` in the working directory and print the table inline. If the user asked, post it to the PR (`gh pr comment <n> --body-file <file>`); never post without being asked. If the table is empty, say so in one line: the team found nothing that met the bar.
+
+Then remove only this run's state: `git worktree remove --force <run-dir>/repo` and `git update-ref -d refs/team-review/<run-id>`. Never prune or remove other worktrees or `refs/team-review/*` refs; they may belong to a live review.
 
 ## Principles
 
