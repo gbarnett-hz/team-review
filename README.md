@@ -35,11 +35,3 @@ Or ask in prose: "team review this PR", "rigorous review of this branch".
 The decision is written to `team-review-<slug>.md` in the working directory and printed inline. It is posted to the PR only if you ask.
 
 Requires `gh` (authenticated) for PR targets, and an agent with subagent, shell, and web tools.
-
-## Test
-
-```sh
-./test-install.sh
-```
-
-Installs the skill from GitHub into a throwaway project and checks the installed `SKILL.md` matches this repo's.
